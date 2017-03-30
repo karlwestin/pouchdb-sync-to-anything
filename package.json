@@ -1,0 +1,23 @@
+{
+  "name": "pouchdb-sync-to-anything",
+  "version": "0.0.1",
+  "description": "Use PouchDB's sequences and checkpoints to sync to something that's not CouchDB",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "keywords": [
+    "pouchdb",
+    "rest"
+  ],
+  "author": "Karl Westin",
+  "license": "MIT",
+  "devDependencies": {
+    "pouchdb": "^6.1.2",
+    "pouchdb-adapter-memory": "^6.1.2",
+    "tape": "^4.6.3"
+  },
+  "dependencies": {
+    "inherits": "^2.0.3"
+  }
+}
