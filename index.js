@@ -1,5 +1,7 @@
 var EE = require('events').EventEmitter
 var inherits = require('inherits')
+var Checkpointer = require('pouchdb-checkpointer')
+var uuid = require('pouchdb-utils').uuid
 
 inherits(Replicator, EE)
 
@@ -25,11 +27,16 @@ function Replicator(db) {
 function sync (syncer, opts) {
   opts = opts || {}
   var db = this
-  var id = 'my-replication-id'
+  // TODO: how to generate ids?
+  var repId = opts.repId || 'my-replication-id'
   var returnValue = new Replicator(db)
   var batch_size = opts.batch_size || 100
   var changesOpts = {}
   var currentBatch
+  var session = uuid()
+  var checkpointer
+  var changesPending = false
+  var changesCompleted = false
 
   var pendingBatch = {
     changes: [],
@@ -38,7 +45,20 @@ function sync (syncer, opts) {
   }
   var batches = []
 
-  function complete () {
+  function initCheckpointer() {
+    /*
+     * PouchDB checkpointer writes the checkpoint to target first
+     * We're misusing the checkpointer a little bit,
+     * so we pass our source as target, and pretend our source is read-only
+     * that way we can use the PouchDB checkpointer out of the box
+     */
+    checkpointer =
+      checkpointer ||
+      new Checkpointer('sync-to-anything', db, `_local/${repId}`, returnValue)
+    checkpointer.readOnlySource = true
+  }
+
+  function completeReplication () {
     returnValue.emit('complete')
   }
 
@@ -57,18 +77,35 @@ function sync (syncer, opts) {
     return syncer(docs)
   }
 
+  function finishBatch () {
+    var last_seq = currentBatch.seq
+    console.log('writing checkpoint', last_seq)
+    return checkpointer.writeCheckpoint(last_seq, session)
+      .then(function () {
+        currentBatch = undefined
+      })
+  }
+
   function startNextBatch () {
-    currentBatch = batches.shift()
-    if (!currentBatch) {
-      return complete()
+    if (batches.length === 0) {
+      return processPendingBatch()
     }
+
+    currentBatch = batches.shift()
 
     getBatchDocs()
       .then(writeDocs)
+      .then(finishBatch)
       .then(startNextBatch)
   }
 
   function processPendingBatch () {
+    if (pendingBatch.changes.length === 0) {
+      if (changesCompleted) {
+        return completeReplication()
+      }
+    }
+
     batches.push(pendingBatch)
     pendingBatch = {
       changes: [],
@@ -85,28 +122,42 @@ function sync (syncer, opts) {
   }
 
   function onChangesComplete (changes) {
+    changesPending = false
+
     changesOpts.since = changes.last_seq
     processPendingBatch()
+
+    if (changes.results.length > 0) {
+      getChanges()
+    } else {
+      changesCompleted = true
+    }
   }
 
   function getChanges () {
+    changesPending = true
     // TODO: cancel when replication is aborted
+    console.log('getChanges', changesOpts.since)
     var changes = db.changes(changesOpts)
     changes.on('change', onChange)
     changes.then(onChangesComplete)
   }
 
   function startChanges () {
-    changesOpts = {
-      since: 0,
-      limit: batch_size,
-      style: 'main_only', // only get winning revisions
-      return_docs: true
-    }
+    checkpointer.getCheckpoint()
+      .then(function (checkpoint) {
+        changesOpts = {
+          since: checkpoint,
+          limit: batch_size,
+          style: 'main_only', // only get winning revisions
+          return_docs: true
+        }
 
-    getChanges()
+        getChanges()
+      })
   }
 
+  initCheckpointer()
   startChanges()
 
   return returnValue

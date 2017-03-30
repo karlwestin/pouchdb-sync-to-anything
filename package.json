@@ -18,6 +18,7 @@
     "tape": "^4.6.3"
   },
   "dependencies": {
-    "inherits": "^2.0.3"
+    "inherits": "^2.0.3",
+    "pouchdb-checkpointer": "6.1.2"
   }
 }
