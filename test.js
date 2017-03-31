@@ -23,10 +23,10 @@ function addDocs(db, count) {
 
 function DocCheck () {
   var checked = []
-  return function syncedBefore (docs) {
+  return function notSyncedBefore (docs) {
     var newIds = docs.map(function (doc) { return doc._id })
     var intersection = newIds.reduce(function(sum, id) {
-      return checked.indexOf(id) !== -1
+      return sum || checked.indexOf(id) !== -1
     }, false)
     checked = checked.concat(newIds)
     return !intersection
@@ -119,6 +119,52 @@ test('batches large sync tasks', function (t) {
     })
     .then(function () {
       db.destroy()
+      t.end()
+    })
+})
+
+
+/* Error Handling */
+test('Error Handling: Picks up where it left off if sync fails', function (t) {
+  var db = setup()
+
+  var batch_size = 5
+  var notSyncedBefore = new DocCheck()
+
+  addDocs(db, 10)
+    .then(function () {
+      var callCount = 0
+      return db.syncToAnything(function (docs) {
+        callCount++
+        if (callCount === 2) {
+          t.ok(notSyncedBefore(docs), 'docs in the batch has not been synced before')
+          return Promise.reject('write error')
+        }
+
+        return Promise.resolve()
+      }, {
+        batch_size: batch_size
+      })
+      .then(function () {
+        t.fail('first replication should fail')
+      })
+      .catch(function (err) {
+        t.equals(err.result.status, 'aborting', 'sets status to failed')
+        t.equals(callCount, 2, 'failed on 2nd call')
+      })
+    })
+    .then(function () {
+      var callCount = 0
+      return db.syncToAnything(function (docs) {
+        if (callCount === 0) {
+          t.notOk(notSyncedBefore(docs), 'first set of docs should have been attempted before')
+        }
+
+        callCount++
+      })
+    })
+    .then(function (result) {
+      t.equals(result.status, 'complete', 'sets status to success')
       t.end()
     })
 })

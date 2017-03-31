@@ -24,12 +24,23 @@ function Replicator(db) {
   return this
 }
 
+function createError(err) {
+  if (err instanceof Error) {
+    return err
+  }
+
+  return new Error(`Sync error ${err}`)
+}
+
 function sync (syncer, opts) {
   opts = opts || {}
   var db = this
   // TODO: how to generate ids?
   var repId = opts.repId || 'my-replication-id'
-  var returnValue = new Replicator(db)
+  var result = {
+    ok: true
+  }
+  var returnValue = new Replicator(db, result)
   var batch_size = opts.batch_size || 100
   var changesOpts = {}
   var currentBatch
@@ -58,8 +69,30 @@ function sync (syncer, opts) {
     checkpointer.readOnlySource = true
   }
 
-  function completeReplication () {
-    returnValue.emit('complete')
+  function completeReplication (fatalError) {
+    result.status = result.status || 'complete'
+    if (fatalError) {
+      fatalError = createError(fatalError)
+      fatalError.result = result
+      returnValue.emit('error', fatalError)
+    } else {
+      returnValue.emit('complete', result)
+    }
+
+    returnValue.removeAllListeners()
+  }
+
+  function abortReplication (err) {
+    result.ok = false
+    result.status = 'aborting'
+    batches = []
+    pendingBatch = {
+      changes: [],
+      seq: 0,
+      docs: []
+    }
+
+    completeReplication(err)
   }
 
   function getChange (change) {
@@ -100,6 +133,7 @@ function sync (syncer, opts) {
       .then(writeDocs)
       .then(finishBatch)
       .then(startNextBatch)
+      .catch(abortReplication)
   }
 
   function processPendingBatch () {
