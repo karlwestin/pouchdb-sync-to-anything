@@ -21,7 +21,18 @@ function addDocs(db, count) {
   return Promise.all(prs)
 }
 
-/*
+function DocCheck () {
+  var checked = []
+  return function syncedBefore (docs) {
+    var newIds = docs.map(function (doc) { return doc._id })
+    var intersection = newIds.reduce(function(sum, id) {
+      return checked.indexOf(id) !== -1
+    }, false)
+    checked = checked.concat(newIds)
+    return !intersection
+  }
+}
+
 test('defines a name', function (t) {
   var db = setup()
   t.ok(db.syncToAnything, 'defines a syncToAnything function')
@@ -45,36 +56,47 @@ test('doesn\'t call the sync function if there are no docs', function (t) {
 
 test('calls the sync function with the docs when there are docs', function (t) {
   var db = setup()
-  addDocs(db, 5).then(function () {
-    db.syncToAnything(function (docs) {
-      t.equals(docs.length, 5, 'receives the docs')
-      db.destroy()
-      t.end()
+  var callCount = 0
+  addDocs(db, 5)
+    .then(function () {
+      return db.syncToAnything(function (docs) {
+        callCount++
+        t.equals(docs.length, 5, 'receives the docs')
+      })
     })
-  })
+    .then(function () {
+        t.equals(callCount, 1, 'Sync function got called')
+        db.destroy()
+        t.end()
+    })
 })
-*/
 
 test('picks up 2nd replication where the first ended', function (t) {
   var db = setup()
-  var callCount = 0
+  var callCount2 = 0
+  var callCount1 = 0
+  var notSyncedBefore = new DocCheck()
 
   addDocs(db, 5)
     .then(function () {
       return db.syncToAnything(function (docs) {
+        callCount1++
+        t.ok(notSyncedBefore(docs), 'docs in the batch has not been synced before')
         t.equals(docs.length, 5, 'receives first batch of docs')
       })
     })
     .then(addDocs.bind(null, db, 3))
     .then(function () {
       return db.syncToAnything(function (docs) {
-        callCount++
+        callCount2++
+        t.ok(notSyncedBefore(docs), 'docs in the batch has not been synced before')
         t.equals(docs.length, 3, 'receives second batch of docs')
       })
     })
     .then(function () {
       db.destroy()
-      t.equals(callCount, 1, 'only calls 2nd sync function once')
+      t.equals(callCount1, 1, 'calls 1st sync function once')
+      t.equals(callCount2, 1, 'only calls 2nd sync function once')
       t.end()
     })
 })
@@ -82,25 +104,21 @@ test('picks up 2nd replication where the first ended', function (t) {
 test('batches large sync tasks', function (t) {
   var db = setup()
   var callCount = 0
+  var batch_size = 5
+  var notSyncedBefore = new DocCheck()
 
   addDocs(db, 11)
     .then(function () {
       return db.syncToAnything(function (docs) {
-        callCount++
-        if (callCount === 3) {
-          t.equals(docs.length, 1, 'receives last batch with 1 doc')
-        } else {
-          t.equals(docs.length, 5, 'receives 5 docs in a batch')
-        }
-
+        t.ok(docs.length <= batch_size && docs.length > 0, 'limits docs to 5, never empty')
+        t.ok(notSyncedBefore(docs), 'docs in the batch has not been synced before')
         return Promise.resolve()
       }, {
-        batch_size: 5
+        batch_size: batch_size
       })
     })
     .then(function () {
       db.destroy()
-      t.equals(callCount, 3, 'sync function called 3 times')
       t.end()
     })
 })

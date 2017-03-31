@@ -79,7 +79,6 @@ function sync (syncer, opts) {
 
   function finishBatch () {
     var last_seq = currentBatch.seq
-    console.log('writing checkpoint', last_seq)
     return checkpointer.writeCheckpoint(last_seq, session)
       .then(function () {
         currentBatch = undefined
@@ -87,6 +86,10 @@ function sync (syncer, opts) {
   }
 
   function startNextBatch () {
+    if (currentBatch) {
+      return
+    }
+
     if (batches.length === 0) {
       return processPendingBatch()
     }
@@ -101,9 +104,12 @@ function sync (syncer, opts) {
 
   function processPendingBatch () {
     if (pendingBatch.changes.length === 0) {
-      if (changesCompleted) {
-        return completeReplication()
+      if (batches.length === 0 && !currentBatch) {
+        if (changesCompleted) {
+          completeReplication()
+        }
       }
+      return
     }
 
     batches.push(pendingBatch)
@@ -125,19 +131,19 @@ function sync (syncer, opts) {
     changesPending = false
 
     changesOpts.since = changes.last_seq
-    processPendingBatch()
 
     if (changes.results.length > 0) {
       getChanges()
+      processPendingBatch()
     } else {
       changesCompleted = true
+      processPendingBatch()
     }
   }
 
   function getChanges () {
     changesPending = true
     // TODO: cancel when replication is aborted
-    console.log('getChanges', changesOpts.since)
     var changes = db.changes(changesOpts)
     changes.on('change', onChange)
     changes.then(onChangesComplete)
