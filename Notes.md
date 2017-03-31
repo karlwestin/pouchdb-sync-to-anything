@@ -7,12 +7,13 @@ What to do:
 
 Testing strategies:
 ----
-- Prep a DB with a few docs
-- Sync, check that the expected docs gets passed in to sync function
-
-- Test2:
-  - fail sync via sync function, check that doc passes
-
 Stretch goal:
   - support most possible options on PouchDB.replicate
   - support the possible events on PouchDB.replicate
+
+- Fix replicationId!!!
+- Documentation
+- there's currently 2 options - repId and batch_size, anything else?
+    - TODO: change to sync_id
+- VERY IMPORTANT - test on an updated document!!
+
