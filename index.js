@@ -1,12 +1,13 @@
 var EE = require('events').EventEmitter
 var inherits = require('inherits')
+var generateId = require('pouchdb-generate-replication-id')
 var Checkpointer = require('pouchdb-checkpointer')
 var uuid = require('pouchdb-utils').uuid
 var clone = require('pouchdb-utils').clone
 
 inherits(Replicator, EE)
 
-function Replicator(db) {
+function Replicator (db) {
   EE.call(this)
   var replicator = this
   var promise = new Promise(function (fullfill, reject) {
@@ -25,7 +26,7 @@ function Replicator(db) {
   return this
 }
 
-function createError(err) {
+function createError (err) {
   if (err instanceof Error) {
     return err
   }
@@ -36,8 +37,8 @@ function createError(err) {
 function sync (syncer, opts) {
   opts = opts || {}
   var db = this
-  // TODO: how to generate ids?
-  var repId = opts.repId || 'my-replication-id'
+  // this is mandatory, 2 different versions, later one to fit standard.js
+  var repId = opts.sync_id || opts.syncId
   var result = {
     ok: true
   }
@@ -51,6 +52,11 @@ function sync (syncer, opts) {
   var changesCompleted = false
   var replicationCompleted = false
 
+  if(!repId) {
+    completeReplication('No replication id was provided')
+    return returnValue
+  }
+
   var pendingBatch = {
     changes: [],
     seq: 0,
@@ -58,7 +64,7 @@ function sync (syncer, opts) {
   }
   var batches = []
 
-  function initCheckpointer() {
+  function initCheckpointer () {
     /*
      * PouchDB checkpointer writes the checkpoint to target first
      * We're misusing the checkpointer a little bit,
@@ -119,7 +125,7 @@ function sync (syncer, opts) {
     return Promise.all(currentBatch.changes.map(getChange))
   }
 
-  function writeDocs(docs) {
+  function writeDocs (docs) {
     if (returnValue.cancelled) {
       return completeReplication()
     }
@@ -213,12 +219,12 @@ function sync (syncer, opts) {
     }
 
     var changes = db.changes(changesOpts)
-    function abortChanges() {
-      changes.cancel();
+    function abortChanges () {
+      changes.cancel()
     }
 
-    function removeListener() {
-      returnValue.removeListener('cancel', abortChanges);
+    function removeListener () {
+      returnValue.removeListener('cancel', abortChanges)
     }
 
     returnValue.once('cancel', abortChanges)

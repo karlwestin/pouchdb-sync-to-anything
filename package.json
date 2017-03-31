@@ -2,6 +2,7 @@
   "name": "pouchdb-sync-to-anything",
   "version": "0.0.1",
   "description": "Use PouchDB's sequences and checkpoints to sync to something that's not CouchDB",
+  "repository": "https://github.com/karlwestin/pouchdb-sync-to-anything",
   "main": "index.js",
   "scripts": {
     "test": "node test.js"
@@ -19,6 +20,7 @@
   },
   "dependencies": {
     "inherits": "^2.0.3",
-    "pouchdb-checkpointer": "6.1.2"
+    "pouchdb-checkpointer": "6.1.2",
+    "pouchdb-utils": "6.1.2"
   }
 }

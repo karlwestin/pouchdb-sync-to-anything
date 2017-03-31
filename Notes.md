@@ -11,9 +11,8 @@ Stretch goal:
   - support most possible options on PouchDB.replicate
   - support the possible events on PouchDB.replicate
 
-- Fix replicationId!!!
+// - Fix replicationId!!!
 - Documentation
-- there's currently 2 options - repId and batch_size, anything else?
-    - TODO: change to sync_id
-- VERY IMPORTANT - test on an updated document!!
+- there's currently 2 options - sync_id and batch_size, anything else?
+// - VERY IMPORTANT - test on an updated document!!
 

@@ -45,7 +45,7 @@ test('doesn\'t call the sync function if there are no docs', function (t) {
   var db = setup()
   var replication = db.syncToAnything(function (docs) {
     t.fail('Sync function should not be called!')
-  })
+  }, { sync_id: 'test1' })
 
   replication.then(function () {
     t.pass('finished replication')
@@ -62,7 +62,7 @@ test('calls the sync function with the docs when there are docs', function (t) {
       return db.syncToAnything(function (docs) {
         callCount++
         t.equals(docs.length, 5, 'receives the docs')
-      })
+      }, { sync_id: 'test2' })
     })
     .then(function () {
         t.equals(callCount, 1, 'Sync function got called')
@@ -83,7 +83,7 @@ test('picks up 2nd replication where the first ended', function (t) {
         callCount1++
         t.ok(notSyncedBefore(docs), 'docs in the batch has not been synced before')
         t.equals(docs.length, 5, 'receives first batch of docs')
-      })
+      }, { sync_id: 'test3' })
     })
     .then(addDocs.bind(null, db, 3))
     .then(function () {
@@ -91,12 +91,79 @@ test('picks up 2nd replication where the first ended', function (t) {
         callCount2++
         t.ok(notSyncedBefore(docs), 'docs in the batch has not been synced before')
         t.equals(docs.length, 3, 'receives second batch of docs')
-      })
+      }, { sync_id: 'test3' })
     })
     .then(function () {
       db.destroy()
       t.equals(callCount1, 1, 'calls 1st sync function once')
       t.equals(callCount2, 1, 'only calls 2nd sync function once')
+      t.end()
+    })
+})
+
+test('updated document gets synced again', function (t) {
+  var db = setup()
+  var docToUpdate
+  var called = false
+  addDocs(db, 2)
+    .then(function () {
+      return db.syncToAnything(function (docs) {
+        docToUpdate = docs[0]
+        return Promise.resolve()
+      }, { sync_id: 'test4' })
+    })
+    .then(function () {
+      docToUpdate.extra = true
+      return db.put(docToUpdate)
+    })
+    .then(function () {
+      return db.syncToAnything(function (docs) {
+        called = true
+        t.equals(docs.length, 1, 'the updated doc got called')
+        t.equals(docs[0]._id, docToUpdate._id, 'it is the right doc')
+        t.equals(docs[0]._rev.substr(0, 1), '2', 'the updated doc is revision 2')
+        return Promise.resolve()
+      }, { sync_id: 'test4' })
+    })
+    .then(function () {
+      t.ok(called, 'sync function called on 2nd sync')
+      db.destroy()
+      t.end()
+    })
+})
+
+test('a document that\'s been updated several times only gets passed to \'sync\' once', function (t) {
+  var db = setup()
+  var docToUpdate
+  var callCount = 0
+  addDocs(db, 2)
+    .then(function () {
+      return db.syncToAnything(function (docs) {
+        docToUpdate = docs[0]
+        return Promise.resolve()
+      }, { sync_id: 'test5' })
+    })
+    .then(function () {
+      docToUpdate.extra = true
+      return db.put(docToUpdate)
+    })
+    .then(function (res) {
+      docToUpdate.somethingElse = 1001
+      docToUpdate._rev = res.rev
+      return db.put(docToUpdate)
+    })
+    .then(function () {
+      return db.syncToAnything(function (docs) {
+        callCount++
+        t.equals(docs.length, 1, 'the updated doc got called')
+        t.equals(docs[0]._id, docToUpdate._id, 'it is the right doc')
+        t.equals(docs[0]._rev.substr(0, 1), '3', 'the updated doc is revision 3')
+        return Promise.resolve()
+      }, { sync_id: 'test5' })
+    })
+    .then(function () {
+      t.equals(callCount, 1, 'only one call to sync function called on 2nd sync')
+      db.destroy()
       t.end()
     })
 })
@@ -114,7 +181,8 @@ test('batches large sync tasks', function (t) {
         t.ok(notSyncedBefore(docs), 'docs in the batch has not been synced before')
         return Promise.resolve()
       }, {
-        batch_size: batch_size
+        batch_size: batch_size,
+        sync_id: 'test6'
       })
     })
     .then(function () {
@@ -141,13 +209,15 @@ test('a document written while syncing is included', function (t) {
         callCount++
 
         if (callCount === 1) {
-          console.log('adding extra doc')
           // We add a doc in the middle of the sync
           return addDocs(db, 1)
         }
 
         return Promise.resolve()
-      }, { batch_size: batch_size })
+      }, {
+        batch_size: batch_size,
+        sync_id: 'test7'
+      })
     })
     .then(function () {
       t.equals(syncedDocs, 101, 'included the doc that was added during sync')
@@ -168,6 +238,8 @@ test('Emits a \'Change\' event on every batch written', function (t) {
       var replication = db.syncToAnything(function (docs) {
         callCount++
         return Promise.resolve()
+      }, {
+        sync_id: 'test8'
       })
 
       replication.on('change', function (change) {
@@ -195,7 +267,7 @@ test('Emits a result in the end', function (t) {
     .then(function () {
       return db.syncToAnything(function () {
         return Promise.resolve()
-      })
+      }, { sync_id: 'test9' })
     })
     .then(function (result) {
       t.equals(result.status, 'complete', 'status is set to "complete"')
@@ -219,7 +291,7 @@ test('Cancels a sync', function (t) {
         }
 
         return Promise.resolve()
-      }, { batch_size: batch_size })
+      }, { batch_size: batch_size, sync_id: 'test10' })
 
       return replication
     })
@@ -251,7 +323,8 @@ test('Error Handling: Picks up where it left off if sync fails', function (t) {
 
         return Promise.resolve()
       }, {
-        batch_size: batch_size
+        batch_size: batch_size,
+        sync_id: 'test11'
       })
       .then(function () {
         t.fail('first replication should fail')
@@ -269,10 +342,11 @@ test('Error Handling: Picks up where it left off if sync fails', function (t) {
         }
 
         callCount++
-      })
+      }, { sync_id: 'test11' })
     })
     .then(function (result) {
       t.equals(result.status, 'complete', 'sets status to success')
+      db.destroy()
       t.end()
     })
 })
