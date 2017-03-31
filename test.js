@@ -123,8 +123,116 @@ test('batches large sync tasks', function (t) {
     })
 })
 
+/*
+ * I'm a little unsure about this test,
+ * PouchDB passes it but i don't really see it supported in the code
+ * it works with 100 docs but not with 5
+ */
+test('a document written while syncing is included', function (t) {
+  var db = setup()
+  var callCount = 0
+  var batch_size = 10
+  var syncedDocs = 0
 
-/* Error Handling */
+  addDocs(db, 100)
+    .then(function () {
+      return db.syncToAnything(function (docs) {
+        syncedDocs += docs.length
+        callCount++
+
+        if (callCount === 1) {
+          console.log('adding extra doc')
+          // We add a doc in the middle of the sync
+          return addDocs(db, 1)
+        }
+
+        return Promise.resolve()
+      }, { batch_size: batch_size })
+    })
+    .then(function () {
+      t.equals(syncedDocs, 101, 'included the doc that was added during sync')
+      db.destroy()
+      t.end()
+    })
+})
+
+test('Emits a \'Change\' event on every batch written', function (t) {
+  var db = setup()
+  var batch_size = 5
+  var callCount = 0
+  var changeCount = 0
+  var lastChange = 0
+
+  addDocs(db, 30)
+    .then(function () {
+      var replication = db.syncToAnything(function (docs) {
+        callCount++
+        return Promise.resolve()
+      })
+
+      replication.on('change', function (change) {
+        t.ok(change.last_seq >= lastChange, 'updates change last_seq')
+        t.ok(change.last_seq > 0, 'updates change last_seq 2')
+        lastChange = change.last_seq
+        changeCount++
+      })
+
+      return replication
+    })
+    .then(function () {
+      t.ok(changeCount > 0, 'change has been called')
+      t.equals(changeCount, callCount, 'change has been called as many times as sync func')
+
+      db.destroy()
+      t.end()
+    })
+})
+
+test('Emits a result in the end', function (t) {
+  var db = setup()
+
+  addDocs(db, 16)
+    .then(function () {
+      return db.syncToAnything(function () {
+        return Promise.resolve()
+      })
+    })
+    .then(function (result) {
+      t.equals(result.status, 'complete', 'status is set to "complete"')
+
+      db.destroy()
+      t.end()
+    })
+})
+
+test('Cancels a sync', function (t) {
+  var db = setup()
+  var batch_size = 5
+  var callCount = 0
+
+  addDocs(db, 30)
+    .then(function () {
+      var replication = db.syncToAnything(function (docs) {
+        callCount++
+        if (callCount == 2) {
+          return replication.cancel()
+        }
+
+        return Promise.resolve()
+      }, { batch_size: batch_size })
+
+      return replication
+    })
+    .then(function (result) {
+      t.equals(result.status, 'cancelled', 'writes cancelled status')
+      t.ok(result.last_seq > 0, 'last_seq is recorded as > 0')
+      t.equals(callCount, 2, 'sync function not called any more after cancelling')
+
+      db.destroy()
+      t.end()
+    })
+})
+
 test('Error Handling: Picks up where it left off if sync fails', function (t) {
   var db = setup()
 

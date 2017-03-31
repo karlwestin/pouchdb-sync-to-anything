@@ -2,6 +2,7 @@ var EE = require('events').EventEmitter
 var inherits = require('inherits')
 var Checkpointer = require('pouchdb-checkpointer')
 var uuid = require('pouchdb-utils').uuid
+var clone = require('pouchdb-utils').clone
 
 inherits(Replicator, EE)
 
@@ -48,6 +49,7 @@ function sync (syncer, opts) {
   var checkpointer
   var changesPending = false
   var changesCompleted = false
+  var replicationCompleted = false
 
   var pendingBatch = {
     changes: [],
@@ -70,7 +72,17 @@ function sync (syncer, opts) {
   }
 
   function completeReplication (fatalError) {
+    if (replicationCompleted) {
+      return
+    }
+
     result.status = result.status || 'complete'
+    replicationCompleted = true
+
+    if (returnValue.cancelled) {
+      result.status = 'cancelled'
+    }
+
     if (fatalError) {
       fatalError = createError(fatalError)
       fatalError.result = result
@@ -83,6 +95,10 @@ function sync (syncer, opts) {
   }
 
   function abortReplication (err) {
+    if (replicationCompleted) {
+      return
+    }
+
     result.ok = false
     result.status = 'aborting'
     batches = []
@@ -104,6 +120,10 @@ function sync (syncer, opts) {
   }
 
   function writeDocs(docs) {
+    if (returnValue.cancelled) {
+      return completeReplication()
+    }
+
     if (!docs.length) {
       return Promise.resolve()
     }
@@ -112,6 +132,12 @@ function sync (syncer, opts) {
 
   function finishBatch () {
     var last_seq = currentBatch.seq
+    result.last_seq = last_seq
+    // This one is slightly simplified,
+    // will be called on every finish batch
+    // In PouchDB they look up if any docs have been synced
+    returnValue.emit('change', clone(result))
+
     return checkpointer.writeCheckpoint(last_seq, session)
       .then(function () {
         currentBatch = undefined
@@ -119,7 +145,7 @@ function sync (syncer, opts) {
   }
 
   function startNextBatch () {
-    if (currentBatch) {
+    if (returnValue.cancelled || currentBatch) {
       return
     }
 
@@ -157,6 +183,10 @@ function sync (syncer, opts) {
   }
 
   function onChange (change) {
+    if (returnValue.cancelled) {
+      return completeReplication()
+    }
+
     pendingBatch.seq = change.seq
     pendingBatch.changes.push(change)
   }
@@ -177,13 +207,31 @@ function sync (syncer, opts) {
 
   function getChanges () {
     changesPending = true
-    // TODO: cancel when replication is aborted
+
+    if (returnValue.cancelled) {
+      return completeReplication()
+    }
+
     var changes = db.changes(changesOpts)
+    function abortChanges() {
+      changes.cancel();
+    }
+
+    function removeListener() {
+      returnValue.removeListener('cancel', abortChanges);
+    }
+
+    returnValue.once('cancel', abortChanges)
     changes.on('change', onChange)
+    changes.then(removeListener, removeListener)
     changes.then(onChangesComplete)
   }
 
   function startChanges () {
+    if (returnValue.cancelled) {
+      return completeReplication()
+    }
+
     checkpointer.getCheckpoint()
       .then(function (checkpoint) {
         changesOpts = {
