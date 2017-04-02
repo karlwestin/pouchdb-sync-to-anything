@@ -31,7 +31,7 @@ function createError (err) {
     return err
   }
 
-  return new Error(`Sync error ${err}`)
+  return new Error('Sync error: ' + err)
 }
 
 function sync (syncer, opts) {
@@ -73,7 +73,7 @@ function sync (syncer, opts) {
      */
     checkpointer =
       checkpointer ||
-      new Checkpointer('sync-to-anything', db, `_local/${repId}`, returnValue)
+      new Checkpointer('sync-to-anything', db, '_local/' + repId, returnValue)
     checkpointer.readOnlySource = true
   }
 
@@ -117,12 +117,17 @@ function sync (syncer, opts) {
     completeReplication(err)
   }
 
-  function getChange (change) {
-    return db.get(change.id)
-  }
-
   function getBatchDocs () {
-    return Promise.all(currentBatch.changes.map(getChange))
+    var ids = currentBatch.changes.map(function (change) {
+      return change.id
+    })
+
+    return db.allDocs({ include_docs: true, keys: ids })
+      .then(function (res) {
+        return res.rows.map(function (item) {
+          return item.doc
+        })
+      })
   }
 
   function writeDocs (docs) {
