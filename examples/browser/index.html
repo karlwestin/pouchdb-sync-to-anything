@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+    <head>
+        <title>PouchDB sync-to-anything example</title>
+    </head>
+    <body>
+        <h1>Browser example for PouchDB sync-to-anything</h1>
+
+        <p>Since this example does not have any backend, it just lists the documents that got 'synced' and the last sequence update</p>
+
+        <div id='app'>
+            <button class='js-create-docs'>
+                Create/Update documents
+            </button>
+
+            <button class='js-sync-docs'>
+                'Sync' documents
+            </button>
+
+            <button class='js-delete-docs'>
+                Clear PouchDB
+            </button>
+
+            <div>
+                <h2>Sync Status:</h2>
+                <div class='js-unsynced-documents'></div>
+            </div>
+
+            <div>
+                <h2>Last Sync Run:</h2>
+                <ul class='js-last-sync'></ul>
+            </div>
+        </div>
+
+        <script src='dist/app.js'></script>
+    </body>
+</html>
