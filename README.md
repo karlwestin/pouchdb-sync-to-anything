@@ -28,7 +28,7 @@ myDb.syncToAnything(function (docs) {
 })
 ```
 
-### Argumnets
+### Arguments
 
 #### Syncer (function)
 
